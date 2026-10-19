@@ -30,6 +30,9 @@ final class AudioBridge {
     private(set) var outputRate: Double = 0
     /// 出力が飽和し続けている（ハウリングの疑い）。
     private(set) var feedbackSuspected = false
+    /// 音切れ（バッファ枯渇）と、遅延超過で音を捨てた回数。ブチブチ音の診断用。
+    var underruns: Int { ring.underruns }
+    var drops: Int { ring.drops }
     var isRunning: Bool { inputUnit != nil }
 
     /// 入出力デバイスの消失・サンプルレート変化など、自動で止める／作り直す必要が出たとき。
@@ -200,7 +203,7 @@ final class AudioBridge {
         let ratio = outputRate > 0 ? inputRate / outputRate : 1
 
         // 滞留が溜まったら捨てて遅延を抑える。足りなければ溜まるまで無音。
-        ring.pull(into: base, frames: n, ratio: ratio, targetFrames: Int(inputRate * 0.04), maxFrames: Int(inputRate * 0.12))
+        ring.pull(into: base, frames: n, ratio: ratio, targetFrames: Int(inputRate * 0.08), maxFrames: Int(inputRate * 0.30))
 
         // 倍率（約 50ms でなめらかに追従）+ ソフトリミッタ。出力は ±0.9 を超えない。
         let target = targetGain
@@ -279,6 +282,8 @@ private final class Ring {
     private var writeIndex = 0
     private var readPos = 0.0
     private var primed = false
+    private(set) var underruns = 0
+    private(set) var drops = 0
 
     init(capacity: Int) {
         self.capacity = capacity
@@ -291,7 +296,7 @@ private final class Ring {
 
     func reset() {
         os_unfair_lock_lock(&lock)
-        writeIndex = 0; readPos = 0; primed = false
+        writeIndex = 0; readPos = 0; primed = false; underruns = 0; drops = 0
         os_unfair_lock_unlock(&lock)
     }
 
@@ -315,6 +320,7 @@ private final class Ring {
         if avail > Double(maxFrames) {
             readPos = Double(writeIndex - targetFrames)
             avail = Double(targetFrames)
+            drops += 1
         }
         if !primed {
             if avail >= Double(targetFrames) { primed = true } else {
@@ -322,8 +328,13 @@ private final class Ring {
                 return
             }
         }
+        // 入出力クロックのずれは、滞留量に応じて読み出し速度を ±1% 以内で補正して吸収する
+        // （音を捨てたり無音を挟んだりしない）。
+        let error = (avail - Double(targetFrames)) / Double(targetFrames)
+        let ratio = ratio * (1 + max(-0.01, min(0.01, error * 0.01)))
         for i in 0..<frames {
             if Double(writeIndex) - readPos < 2 {
+                underruns += 1
                 primed = false
                 dst.advanced(by: i).update(repeating: 0, count: frames - i)
                 return

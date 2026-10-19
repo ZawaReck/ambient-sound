@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let inputLine = NSMenuItem()
     private let outputLine = NSMenuItem()
     private let latencyLine = NSMenuItem()
+    private let statsLine = NSMenuItem()
     private let inputMenu = NSMenu()
     private let outputMenu = NSMenu()
 
@@ -63,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(levelLine)
         menu.addItem(.separator())
 
-        for item in [inputLine, outputLine, latencyLine] {
+        for item in [inputLine, outputLine, latencyLine, statsLine] {
             item.isEnabled = false
             menu.addItem(item)
         }
@@ -269,6 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         inputLine.title = "入力: \(inDev?.name ?? "なし")\(rate(bridge.inputRate))"
         outputLine.title = "出力: \(outDev?.name ?? "なし")\(rate(bridge.outputRate))"
         latencyLine.title = running ? String(format: "遅延の目安: 約 %.0f ms", bridge.estimatedLatencyMs() ?? 0) : "遅延の目安: —"
+        statsLine.title = running ? "音切れ: \(bridge.underruns) 回 / 破棄: \(bridge.drops) 回" : "音切れ: —"
         updateIcon()
     }
 }
