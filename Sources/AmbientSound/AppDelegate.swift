@@ -15,12 +15,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let outputLine = NSMenuItem()
     private let latencyLine = NSMenuItem()
     private let statsLine = NSMenuItem()
+    private let bufferMenu = NSMenu()
     private let inputMenu = NSMenu()
     private let outputMenu = NSMenu()
 
     /// UID。nil は「システム既定」。次回起動時に引き継ぐ。
     private var inputUID: String? = UserDefaults.standard.string(forKey: "inputUID")
     private var outputUID: String? = UserDefaults.standard.string(forKey: "outputUID")
+
+    private static let bufferPresets: [(title: String, ms: Double)] = [
+        ("低遅延（音切れしやすい）", 30), ("標準", 80), ("安定（遅延大）", 150),
+    ]
+    private var bufferMs: Double = {
+        let v = UserDefaults.standard.double(forKey: "bufferMs")
+        return v > 0 ? v : 80
+    }()
 
     private var timer: Timer?
     private var restartTimes: [Date] = []
@@ -77,6 +86,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         outputParent.submenu = outputMenu
         menu.addItem(outputParent)
 
+        let bufferParent = NSMenuItem(title: "バッファ（遅延と安定性）", action: nil, keyEquivalent: "")
+        bufferParent.submenu = bufferMenu
+        for (i, p) in Self.bufferPresets.enumerated() {
+            let item = NSMenuItem(title: "\(p.title) \(Int(p.ms)) ms", action: #selector(pickBuffer(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = i
+            bufferMenu.addItem(item)
+        }
+        menu.addItem(bufferParent)
+
         let sound = NSMenuItem(title: "サウンド設定を開く…", action: #selector(openSoundSettings), keyEquivalent: "")
         sound.target = self
         menu.addItem(sound)
@@ -127,6 +146,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshLabels()
     }
 
+    @objc private func pickBuffer(_ sender: NSMenuItem) {
+        bufferMs = Self.bufferPresets[sender.tag].ms
+        UserDefaults.standard.set(bufferMs, forKey: "bufferMs")
+        bridge.bufferMs = bufferMs
+        refreshLabels()
+    }
+
     @objc private func gainChanged() {
         bridge.targetGain = Float(gainSlider.doubleValue)
         refreshLabels()
@@ -174,6 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func launch() {
         guard let config = resolve() else { return }
         bridge.targetGain = Float(gainSlider.doubleValue)
+        bridge.bufferMs = bufferMs
         starting = true
         refreshLabels()
         // 入力を開いてから出力を構成するまで待つので、メインを塞がないよう別スレッドで。
@@ -271,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         outputLine.title = "出力: \(outDev?.name ?? "なし")\(rate(bridge.outputRate))"
         latencyLine.title = running ? String(format: "遅延の目安: 約 %.0f ms", bridge.estimatedLatencyMs() ?? 0) : "遅延の目安: —"
         statsLine.title = running ? "音切れ: \(bridge.underruns) 回 / 破棄: \(bridge.drops) 回" : "音切れ: —"
+        for item in bufferMenu.items { item.state = Self.bufferPresets[item.tag].ms == bufferMs ? .on : .off }
         updateIcon()
     }
 }

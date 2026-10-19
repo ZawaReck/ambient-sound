@@ -24,6 +24,8 @@ final class AudioBridge {
 
     /// 取り込み倍率。リアルタイム側でなめらかに追従する。
     var targetGain: Float = 0.5
+    /// バッファの目標滞留 (ms)。小さいほど低遅延だが、音切れしやすい。動作中でも変更できる。
+    var bufferMs: Double = 80
     /// 直近の入力ピーク (0...1)。
     private(set) var inputPeak: Float = 0
     private(set) var inputRate: Double = 0
@@ -203,7 +205,7 @@ final class AudioBridge {
         let ratio = outputRate > 0 ? inputRate / outputRate : 1
 
         // 滞留が溜まったら捨てて遅延を抑える。足りなければ溜まるまで無音。
-        ring.pull(into: base, frames: n, ratio: ratio, targetFrames: Int(inputRate * 0.08), maxFrames: Int(inputRate * 0.30))
+        ring.pull(into: base, frames: n, ratio: ratio, targetFrames: Int(inputRate * bufferMs / 1000), maxFrames: Int(inputRate * (bufferMs * 3 + 40) / 1000))
 
         // 倍率（約 50ms でなめらかに追従）+ ソフトリミッタ。出力は ±0.9 を超えない。
         let target = targetGain
